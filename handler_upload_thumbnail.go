@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -45,7 +46,12 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	defer file.Close()
-	mediaType := header.Header.Get("Content-Type")
+
+    mediatype, _, err := mime.ParseMediaType(header.Header.Get("Content-Type"))
+    if err != nil || (mediatype != "image/jpeg" && mediatype != "image/png") {
+		respondWithError(w, http.StatusBadRequest, "Unable to determine file format or file format is not allowed", err)
+		return
+    }
 
 	video, err := cfg.db.GetVideo(videoID)
 	if err != nil {
@@ -57,12 +63,7 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// encodedData := base64.StdEncoding.EncodeToString(data)
-	// dataUrl := fmt.Sprintf("data:%s;base64,%s", mediaType, encodedData)
-	// video.ThumbnailURL = &dataUrl
-	// err = cfg.db.UpdateVideo(video)
-
-	fileExtension := strings.Split(mediaType, "/")[1]
+	fileExtension := strings.Split(mediatype, "/")[1]
 	assetFilename := fmt.Sprintf("%s.%s", video.ID, fileExtension)
 	assetpath := filepath.Join(cfg.assetsRoot, assetFilename)
 
