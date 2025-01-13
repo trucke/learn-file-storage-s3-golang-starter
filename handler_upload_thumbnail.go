@@ -4,6 +4,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/auth"
 	"github.com/google/uuid"
@@ -44,12 +47,6 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 	defer file.Close()
 	mediaType := header.Header.Get("Content-Type")
 
-	data, err := io.ReadAll(file)
-	if err != nil {
-		respondWithError(w, http.StatusBadRequest, "Unable to read file data", err)
-		return
-	}
-
 	video, err := cfg.db.GetVideo(videoID)
 	if err != nil {
 		respondWithError(w, http.StatusBadRequest, "Failed to fetch video from DB", err)
@@ -60,14 +57,35 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-    videoThumbnails[video.ID] = thumbnail{
-		data:      data,
-		mediaType: mediaType,
+	// encodedData := base64.StdEncoding.EncodeToString(data)
+	// dataUrl := fmt.Sprintf("data:%s;base64,%s", mediaType, encodedData)
+	// video.ThumbnailURL = &dataUrl
+	// err = cfg.db.UpdateVideo(video)
+
+	fileExtension := strings.Split(mediaType, "/")[1]
+	assetFilename := fmt.Sprintf("%s.%s", video.ID, fileExtension)
+	assetpath := filepath.Join(cfg.assetsRoot, assetFilename)
+
+	asset, err := os.Create(assetpath)
+	if err != nil {
+        os.Remove(assetpath)
+		respondWithError(w, http.StatusBadRequest, "Unable to create asset!", err)
+		return
+	}
+    defer asset.Close()
+
+	if _, err = io.Copy(asset, file); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Unable to save asset!", err)
+		return
 	}
 
-    url := fmt.Sprintf("http://localhost:%s/api/thumbnails/%s", cfg.port, video.ID.String())
-    video.ThumbnailURL = &url
-    err = cfg.db.UpdateVideo(video)
+	thumbnailUrl := fmt.Sprintf("http://localhost:%s/%s", cfg.port, assetpath)
+	video.ThumbnailURL = &thumbnailUrl
+
+	if err = cfg.db.UpdateVideo(video); err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to update video", err)
+		return
+	}
 
 	respondWithJSON(w, http.StatusOK, video)
 }
